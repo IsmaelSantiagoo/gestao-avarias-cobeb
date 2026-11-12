@@ -1,0 +1,26 @@
+services:
+  frontend:
+    ports:
+      - "3000:80"
+    environment:
+      API_URL: http://localhost:8000
+      APP_MODE: development
+      REVERB_HOST: localhost
+      REVERB_PORT: 8080
+      REVERB_SCHEME: http
+  api:
+    ports:
+      - "8000:80"
+    environment:
+      APP_URL: http://localhost:8000
+  reverb:
+    ports:
+      - "8080:8080"
+  evolution-api:
+    ports:
+      - "8081:8080"
+    environment:
+      SERVER_URL: http://localhost:8081
+      CORS_ORIGIN: http://localhost:3000
+  caddy:
+    profiles: ["production"]

@@ -1,0 +1,228 @@
+name: cobeb
+
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: 10m
+    max-file: "5"
+
+x-api-common: &api-common
+  image: ghcr.io/unify-solucoes-que-conectam/cobeb-gestao-reposicao-api:${API_IMAGE_TAG:-develop}
+  restart: unless-stopped
+  env_file:
+    - ./api.env
+  environment:
+    APP_URL: https://${API_DOMAIN}
+    DB_CONNECTION: mysql
+    DB_HOST: cobeb-mysql
+    DB_PORT: 3306
+    DB_DATABASE: ${COBEB_DB_NAME:?Defina COBEB_DB_NAME no arquivo .env}
+    DB_USERNAME: ${COBEB_DB_USER:?Defina COBEB_DB_USER no arquivo .env}
+    DB_PASSWORD: ${COBEB_DB_PASSWORD:?Defina COBEB_DB_PASSWORD no arquivo .env}
+    EVOLUTION_API_URL: http://evolution-api:8080
+    EVOLUTION_API_KEY: ${EVOLUTION_MASTER_KEY}
+    EVOLUTION_META_WEBHOOK_URL: https://${EVOLUTION_DOMAIN}/webhook/meta
+    EVOLUTION_META_WEBHOOK_TOKEN: ${META_WEBHOOK_VERIFY_TOKEN}
+  extra_hosts:
+    - host.docker.internal:host-gateway
+  networks:
+    - cobeb
+    - cobeb-data
+  volumes:
+    - cobeb-storage:/var/www/html/storage
+  logging: *default-logging
+  depends_on:
+    cobeb-mysql:
+      condition: service_healthy
+
+services:
+  cobeb-mysql:
+    image: mysql:8.4
+    restart: unless-stopped
+    environment:
+      MYSQL_DATABASE: ${COBEB_DB_NAME:?Defina COBEB_DB_NAME no arquivo .env}
+      MYSQL_USER: ${COBEB_DB_USER:?Defina COBEB_DB_USER no arquivo .env}
+      MYSQL_PASSWORD: ${COBEB_DB_PASSWORD:?Defina COBEB_DB_PASSWORD no arquivo .env}
+      MYSQL_ROOT_PASSWORD: ${COBEB_DB_ROOT_PASSWORD:?Defina COBEB_DB_ROOT_PASSWORD no arquivo .env}
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+    volumes:
+      - cobeb-mysql-data:/var/lib/mysql
+    networks:
+      - cobeb-data
+    healthcheck:
+      test: ["CMD-SHELL", "MYSQL_PWD=$${MYSQL_ROOT_PASSWORD} mysqladmin ping --host=127.0.0.1 --user=root --silent"]
+      interval: 10s
+      timeout: 5s
+      start_period: 30s
+      retries: 10
+    logging: *default-logging
+
+  frontend:
+    image: ghcr.io/unify-solucoes-que-conectam/cobeb-gestao-reposicao:${FRONTEND_IMAGE_TAG:-develop}
+    restart: unless-stopped
+    environment:
+      API_URL: https://${API_DOMAIN}
+      APP_MODE: production
+      REVERB_APP_KEY: ${REVERB_APP_KEY}
+      REVERB_HOST: ${REVERB_DOMAIN}
+      REVERB_PORT: 443
+      REVERB_SCHEME: https
+    expose:
+      - "80"
+    networks:
+      - cobeb
+    logging: *default-logging
+
+  api:
+    <<: *api-common
+    expose:
+      - "80"
+
+  reverb:
+    <<: *api-common
+    init: true
+    command: ["php", "artisan", "reverb:start", "--host=0.0.0.0", "--port=8080"]
+    expose:
+      - "8080"
+    healthcheck:
+      disable: true
+
+  scheduler:
+    <<: *api-common
+    init: true
+    command: ["php", "artisan", "schedule:work"]
+    healthcheck:
+      disable: true
+
+  worker-imports:
+    <<: *api-common
+    init: true
+    command: ["php", "artisan", "queue:work", "--queue=imports", "--sleep=3", "--tries=3", "--timeout=3600"]
+    stop_grace_period: 30s
+    healthcheck:
+      disable: true
+
+  worker-whatsapp:
+    <<: *api-common
+    init: true
+    command: ["php", "artisan", "queue:work", "--queue=whatsapp", "--sleep=3", "--tries=3", "--timeout=300"]
+    stop_grace_period: 30s
+    healthcheck:
+      disable: true
+
+  worker-default:
+    <<: *api-common
+    init: true
+    command: ["php", "artisan", "queue:work", "--queue=default", "--sleep=3", "--tries=3", "--timeout=300"]
+    stop_grace_period: 30s
+    healthcheck:
+      disable: true
+
+  evolution-api:
+    image: evoapicloud/evolution-api:v2.3.7
+    restart: unless-stopped
+    env_file:
+      - ./evolution.env
+    environment:
+      SERVER_URL: https://${EVOLUTION_DOMAIN}
+      CORS_ORIGIN: https://${APP_DOMAIN}
+      AUTHENTICATION_API_KEY: ${EVOLUTION_MASTER_KEY}
+      WA_BUSINESS_TOKEN_WEBHOOK: ${META_WEBHOOK_VERIFY_TOKEN}
+      DATABASE_CONNECTION_URI: postgresql://${EVOLUTION_DB_USER}:${EVOLUTION_DB_PASSWORD}@evolution-postgres:5432/${EVOLUTION_DB_NAME}?schema=public
+      CACHE_REDIS_URI: redis://evolution-redis:6379/0
+    expose:
+      - "8080"
+    depends_on:
+      evolution-postgres:
+        condition: service_healthy
+      evolution-redis:
+        condition: service_healthy
+    volumes:
+      - evolution-instances:/evolution/instances
+    networks:
+      - cobeb
+      - evolution-data
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://127.0.0.1:8080 || exit 1"]
+      interval: 30s
+      timeout: 5s
+      start_period: 30s
+      retries: 5
+    logging: *default-logging
+
+  evolution-postgres:
+    image: postgres:13
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${EVOLUTION_DB_USER}
+      POSTGRES_PASSWORD: ${EVOLUTION_DB_PASSWORD}
+      POSTGRES_DB: ${EVOLUTION_DB_NAME}
+    volumes:
+      - evolution-postgres-data:/var/lib/postgresql/data
+    networks:
+      - evolution-data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    logging: *default-logging
+
+  evolution-redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    networks:
+      - evolution-data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+    logging: *default-logging
+
+  caddy:
+    image: caddy:2.10-alpine
+    restart: unless-stopped
+    environment:
+      APP_DOMAIN: ${APP_DOMAIN}
+      API_DOMAIN: ${API_DOMAIN}
+      REVERB_DOMAIN: ${REVERB_DOMAIN}
+      EVOLUTION_DOMAIN: ${EVOLUTION_DOMAIN}
+      ACME_EMAIL: ${ACME_EMAIL}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    networks:
+      - cobeb
+    depends_on:
+      - frontend
+      - api
+      - reverb
+      - evolution-api
+    logging: *default-logging
+
+networks:
+  cobeb:
+    name: cobeb-network
+  evolution-data:
+    internal: true
+  cobeb-data:
+    internal: true
+
+volumes:
+  cobeb-storage:
+    name: cobeb-storage
+  cobeb-mysql-data:
+    name: cobeb-mysql-data
+  evolution-instances:
+  evolution-postgres-data:
+  caddy-data:
+  caddy-config:
