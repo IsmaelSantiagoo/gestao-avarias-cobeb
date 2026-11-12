@@ -1,0 +1,34 @@
+{
+	email {$ACME_EMAIL}
+}
+
+{$APP_DOMAIN} {
+	encode zstd gzip
+	reverse_proxy frontend:80
+}
+
+{$API_DOMAIN} {
+	encode zstd gzip
+	@github_webhook path /webhook/github
+	handle @github_webhook {
+		reverse_proxy host.docker.internal:9000
+	}
+
+	handle {
+		reverse_proxy api:80
+	}
+}
+
+{$REVERB_DOMAIN} {
+	reverse_proxy reverb:8080
+}
+
+{$EVOLUTION_DOMAIN} {
+	@meta path /webhook/meta*
+	handle @meta {
+		reverse_proxy evolution-api:8080
+	}
+	handle {
+		respond "Not Found" 404
+	}
+}

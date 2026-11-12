@@ -1,0 +1,24 @@
+[Unit]
+Description=Cobeb GitHub deployment webhook
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=cobeb
+Group=docker
+WorkingDirectory=/opt/cobeb
+EnvironmentFile=/etc/cobeb-webhook.env
+Environment=DOCKER_CONFIG=/etc/docker
+Environment=DOCKER_CLI_PLUGIN_EXTRA_DIRS=/usr/local/lib/docker/cli-plugins
+ExecStart=/usr/bin/python3 /opt/cobeb/github_webhook.py
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=full
+ReadWritePaths=/opt/cobeb
+
+[Install]
+WantedBy=multi-user.target

@@ -1,6 +1,8 @@
 #!/bin/sh
 set -eu
 
+export DOCKER_CONFIG="${DOCKER_CONFIG:-/etc/docker}"
+
 cd "$(dirname "$0")"
 
 for required in .env api.env evolution.env Caddyfile compose.yml; do
@@ -10,9 +12,9 @@ for required in .env api.env evolution.env Caddyfile compose.yml; do
   fi
 done
 
-docker compose config --quiet
+/usr/bin/docker compose config --quiet
 chmod 600 .env api.env evolution.env
-docker compose pull
+/usr/bin/docker  compose pull
 
 if [ -x ./backup.sh ]; then
   ./backup.sh
@@ -20,18 +22,18 @@ else
   echo "AVISO: backup.sh não encontrado; confirme o backup do banco principal antes de produção." >&2
 fi
 
-docker compose up -d --wait cobeb-mysql
-docker compose run --rm api php artisan migrate --force
-docker compose up -d --remove-orphans
-docker compose exec -T api php artisan storage:link --force
-docker compose exec -T api php artisan optimize:clear
-docker compose exec -T api php artisan queue:restart
+/usr/bin/docker compose up -d --wait cobeb-mysql
+/usr/bin/docker compose run --rm api php artisan migrate --force
+/usr/bin/docker compose up -d --remove-orphans
+/usr/bin/docker compose exec -T api php artisan storage:link --force
+/usr/bin/docker compose exec -T api php artisan optimize:clear
+/usr/bin/docker compose exec -T api php artisan queue:restart
 
-docker compose exec -T frontend wget --quiet --tries=1 --spider http://127.0.0.1/
-docker compose exec -T api php -r '$body=@file_get_contents("http://127.0.0.1/up"); exit($body === false ? 1 : 0);'
-docker compose exec -T api php -r '$s=@fsockopen("reverb",8080,$e,$m,5); exit($s ? 0 : 1);'
-docker compose exec -T api php -r '$s=@fsockopen("evolution-api",8080,$e,$m,5); exit($s ? 0 : 1);'
-docker compose exec -T caddy caddy validate --config /etc/caddy/Caddyfile
+/usr/bin/docker compose exec -T frontend wget --quiet --tries=1 --spider http://127.0.0.1/
+/usr/bin/docker compose exec -T api php -r '$body=@file_get_contents("http://127.0.0.1/up"); exit($body === false ? 1 : 0);'
+/usr/bin/docker compose exec -T api php -r '$s=@fsockopen("reverb",8080,$e,$m,5); exit($s ? 0 : 1);'
+/usr/bin/docker compose exec -T api php -r '$s=@fsockopen("evolution-api",8080,$e,$m,5); exit($s ? 0 : 1);'
+/usr/bin/docker compose exec -T caddy caddy validate --config /etc/caddy/Caddyfile
 
-docker compose ps
+/usr/bin/docker compose ps
 echo "Deploy concluído. Front-end, API, Reverb, Evolution e Caddy responderam aos testes internos."

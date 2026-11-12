@@ -127,7 +127,7 @@ services:
       - ./evolution.env
     environment:
       SERVER_URL: https://${EVOLUTION_DOMAIN}
-      CORS_ORIGIN: https://${APP_DOMAIN}
+      CORS_ORIGIN: "*"
       AUTHENTICATION_API_KEY: ${EVOLUTION_MASTER_KEY}
       WA_BUSINESS_TOKEN_WEBHOOK: ${META_WEBHOOK_VERIFY_TOKEN}
       DATABASE_CONNECTION_URI: postgresql://${EVOLUTION_DB_USER}:${EVOLUTION_DB_PASSWORD}@evolution-postgres:5432/${EVOLUTION_DB_NAME}?schema=public
@@ -200,6 +200,8 @@ services:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy-data:/data
       - caddy-config:/config
+    extra_hosts:
+      - host.docker.internal:host-gateway
     networks:
       - cobeb
     depends_on:

@@ -3,3 +3,5 @@ api.env
 evolution.env
 backups/
 import/
+cobeb-webhook.env
+caddy-root.crt
